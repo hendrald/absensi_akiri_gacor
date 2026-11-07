@@ -1,0 +1,286 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Absensi Akiri - Presensi & Kalkulator Lembur 9 Jam</title>
+  <!-- Tailwind CSS via CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- Lucide Icons -->
+  <script src="https://unpkg.com/lucide@latest"></script>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap');
+    body { font-family: 'Plus Jakarta Sans', sans-serif; }
+  </style>
+</head>
+<body class="bg-slate-50 text-slate-800 min-h-screen">
+  <div class="max-w-6xl mx-auto px-4 py-8">
+    
+    <!-- Header -->
+    <header class="flex flex-col md:flex-row justify-between items-start md:items-center pb-6 border-b border-slate-200 gap-4">
+      <div>
+        <div class="flex items-center gap-3">
+          <div class="p-2.5 bg-indigo-600 text-white rounded-xl shadow-md shadow-indigo-100">
+            <i data-lucide="clock" class="w-6 h-6"></i>
+          </div>
+          <div>
+            <h1 class="text-2xl font-bold tracking-tight text-slate-900">Absensi Akiri</h1>
+            <p class="text-sm text-slate-500">Kalkulator Lembur Presisi Berbasis 9 Jam Kerja Riil</p>
+          </div>
+        </div>
+      </div>
+      
+      <!-- Right Header: Live Clock & Settings Button -->
+      <div class="flex items-center gap-3">
+        <div class="text-right bg-white border border-slate-200 px-4 py-2 rounded-xl shadow-sm">
+          <div id="liveDate" class="text-xs font-semibold text-slate-400 uppercase tracking-wider">Sabtu, 7 Nov 2026</div>
+          <div id="liveTime" class="text-xl font-bold text-slate-800 font-mono">00:00:00</div>
+        </div>
+        <button onclick="openConfigModal()" class="p-3 bg-white hover:bg-slate-100 text-slate-600 border border-slate-200 rounded-xl transition shadow-sm" title="Pengaturan">
+          <i data-lucide="settings" class="w-5 h-5"></i>
+        </button>
+      </div>
+    </header>
+
+    <!-- Top Banner: Info Aturan -->
+    <div class="mt-6 bg-gradient-to-r from-indigo-50 to-blue-50 border border-indigo-100 rounded-2xl p-4 flex items-center justify-between">
+      <div class="flex items-center gap-3">
+        <div class="w-10 h-10 rounded-xl bg-indigo-600/10 text-indigo-600 flex items-center justify-center font-bold">9h</div>
+        <div>
+          <p class="text-sm font-semibold text-indigo-900">Aturan Kerja Fair & Presisi</p>
+          <p class="text-xs text-indigo-700">Masuk jam berapa pun, 9 jam pertama adalah jam reguler. Menit berikutnya otomatis lembur (Rp 25.000 / jam).</p>
+        </div>
+      </div>
+      <div class="hidden sm:block text-right">
+        <span class="inline-flex items-center px-3 py-1 rounded-full text-xs font-bold bg-indigo-600 text-white">
+          Rp 416,67 / menit
+        </span>
+      </div>
+    </div>
+
+    <!-- Active Attendance Card -->
+    <div class="mt-6 bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">
+      <div class="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-6">
+        <div>
+          <span class="inline-block px-3 py-1 bg-slate-100 text-slate-600 text-xs font-bold rounded-full mb-2" id="attendanceStatusBadge">
+            Memeriksa Status...
+          </span>
+          <h2 class="text-xl font-bold text-slate-900" id="cardTitle">Presensi Hari Ini</h2>
+          <p class="text-sm text-slate-500 mt-1" id="cardSubtitle">Siap melakukan pencatatan.</p>
+        </div>
+
+        <!-- Action Box: Clock In or Clock Out -->
+        <div class="w-full lg:w-auto">
+          <!-- Clock In Form -->
+          <div id="clockInActionBox" class="hidden flex flex-wrap items-center gap-3">
+            <div class="flex items-center gap-2 bg-slate-50 border border-slate-200 px-3 py-2 rounded-xl">
+              <span class="text-xs text-slate-500 font-bold">Jam Masuk:</span>
+              <input type="time" id="actionTimeInput" value="07:20" class="bg-transparent font-mono text-sm font-bold text-slate-800 outline-none">
+            </div>
+            <button onclick="handleClockIn()" class="flex items-center justify-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white px-5 py-2.5 rounded-xl font-semibold shadow-md shadow-emerald-200 transition">
+              <i data-lucide="log-in" class="w-4 h-4"></i>
+              <span>Absen Masuk</span>
+            </button>
+          </div>
+
+          <!-- Clock Out Form (Manipulasi Jam Pulang Sesuai Keinginan) -->
+          <div id="clockOutActionBox" class="hidden flex flex-wrap items-center gap-3">
+            <div class="flex items-center gap-2 bg-amber-50 border border-amber-200 px-3 py-2 rounded-xl">
+              <span class="text-xs text-amber-800 font-bold">Set Jam Pulang:</span>
+              <input type="time" id="clockOutTimeInput" value="17:10" class="bg-transparent font-mono text-base font-bold text-amber-900 outline-none">
+            </div>
+            <button onclick="handleClockOut()" class="flex items-center justify-center gap-2 bg-rose-600 hover:bg-rose-700 text-white px-5 py-2.5 rounded-xl font-semibold shadow-md shadow-rose-200 transition">
+              <i data-lucide="log-out" class="w-4 h-4"></i>
+              <span>Simpan Absen Pulang</span>
+            </button>
+            <button onclick="resetHariIni()" class="text-xs text-slate-400 hover:text-slate-600 underline ml-1" title="Batalkan absen masuk untuk coba lagi dari awal">
+              Reset Hari Ini
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Realtime Target Tracker Box -->
+      <div id="trackerBox" class="mt-6 pt-6 border-t border-slate-100 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        <div class="p-4 bg-slate-50 rounded-xl border border-slate-200/70">
+          <p class="text-xs font-semibold text-slate-400">Jam Masuk</p>
+          <p class="text-xl font-bold text-slate-800 font-mono mt-1" id="displayClockIn">--:--</p>
+        </div>
+        <div class="p-4 bg-indigo-50/50 rounded-xl border border-indigo-100">
+          <p class="text-xs font-semibold text-indigo-500">Target Selesai 9 Jam</p>
+          <p class="text-xl font-bold text-indigo-700 font-mono mt-1" id="displayTargetOut">--:--</p>
+        </div>
+        <div class="p-4 bg-slate-50 rounded-xl border border-slate-200/70">
+          <p class="text-xs font-semibold text-slate-400">Jam Pulang</p>
+          <p class="text-xl font-bold text-slate-800 font-mono mt-1" id="displayClockOut">--:--</p>
+        </div>
+        <div class="p-4 bg-amber-50 rounded-xl border border-amber-200/70">
+          <p class="text-xs font-semibold text-amber-700">Lembur Hari Ini</p>
+          <p class="text-xl font-bold text-amber-800 font-mono mt-1" id="displayTodayOvertime">0 m / Rp 0</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- Monthly Summary Metric Cards -->
+    <div class="mt-6 grid grid-cols-1 sm:grid-cols-3 gap-4">
+      <div class="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm">
+        <div class="flex items-center justify-between">
+          <span class="text-xs font-bold text-slate-400 uppercase tracking-wider">Hari Kerja</span>
+          <div class="w-8 h-8 rounded-lg bg-blue-50 text-blue-600 flex items-center justify-center">
+            <i data-lucide="calendar" class="w-4 h-4"></i>
+          </div>
+        </div>
+        <p class="text-2xl font-black text-slate-900 mt-2" id="metricTotalDays">0 Hari</p>
+        <p class="text-xs text-slate-400 mt-1" id="metricMonthLabel">Bulan Berjalan</p>
+      </div>
+
+      <div class="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm">
+        <div class="flex items-center justify-between">
+          <span class="text-xs font-bold text-slate-400 uppercase tracking-wider">Total Jam Lembur</span>
+          <div class="w-8 h-8 rounded-lg bg-purple-50 text-purple-600 flex items-center justify-center">
+            <i data-lucide="timer" class="w-4 h-4"></i>
+          </div>
+        </div>
+        <p class="text-2xl font-black text-slate-900 mt-2" id="metricTotalOvertimeHours">0 jam</p>
+        <p class="text-xs text-slate-400 mt-1" id="metricTotalOvertimeMinutes">0 menit terakumulasi</p>
+      </div>
+
+      <div class="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm border-l-4 border-l-emerald-500">
+        <div class="flex items-center justify-between">
+          <span class="text-xs font-bold text-slate-400 uppercase tracking-wider">Uang Lembur Bulan Ini</span>
+          <div class="w-8 h-8 rounded-lg bg-emerald-50 text-emerald-600 flex items-center justify-center">
+            <i data-lucide="wallet" class="w-4 h-4"></i>
+          </div>
+        </div>
+        <p class="text-2xl font-black text-emerald-600 mt-2" id="metricTotalOvertimePay">Rp 0</p>
+        <p class="text-xs text-slate-400 mt-1">Dihitung presisi per menit</p>
+      </div>
+    </div>
+
+    <!-- Attendance History Table -->
+    <div class="mt-8 bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden">
+      <div class="p-6 border-b border-slate-200 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+        <div>
+          <h3 class="text-lg font-bold text-slate-900">Riwayat Presensi & Lembur</h3>
+          <p class="text-xs text-slate-500">Catatan harian lengkap dengan kalkulasi menit lembur</p>
+        </div>
+        <div class="flex flex-wrap items-center gap-2">
+          <!-- Month Selector -->
+          <input type="month" id="filterMonth" onchange="loadRecords()" class="bg-slate-50 border border-slate-200 text-xs font-semibold px-3 py-2 rounded-xl outline-none text-slate-700">
+          
+          <!-- Add Manual Record Button -->
+          <button onclick="openManualModal()" class="flex items-center gap-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 text-xs font-bold px-3 py-2 rounded-xl transition">
+            <i data-lucide="plus" class="w-3.5 h-3.5"></i>
+            <span>Tambah Catatan</span>
+          </button>
+
+          <!-- Export CSV -->
+          <button onclick="exportCSV()" class="flex items-center gap-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold px-3 py-2 rounded-xl transition">
+            <i data-lucide="download" class="w-3.5 h-3.5"></i>
+            <span>Export CSV</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- Table Container -->
+      <div class="overflow-x-auto">
+        <table class="w-full text-left text-sm">
+          <thead class="bg-slate-50/75 border-b border-slate-200 text-xs font-bold text-slate-400 uppercase tracking-wider">
+            <tr>
+              <th class="py-3 px-4">Tanggal</th>
+              <th class="py-3 px-4">Masuk</th>
+              <th class="py-3 px-4">Target 9 Jam</th>
+              <th class="py-3 px-4">Pulang</th>
+              <th class="py-3 px-4">Durasi Riil</th>
+              <th class="py-3 px-4">Lembur</th>
+              <th class="py-3 px-4">Uang Lembur</th>
+              <th class="py-3 px-4 text-right">Aksi</th>
+            </tr>
+          </thead>
+          <tbody id="recordsTableBody" class="divide-y divide-slate-100 font-medium">
+            <!-- Dynamic rows will be inserted here -->
+          </tbody>
+        </table>
+      </div>
+      <div id="emptyState" class="hidden text-center py-12 text-slate-400 text-sm">
+        Belum ada catatan presensi pada periode ini.
+      </div>
+    </div>
+  </div>
+
+  <!-- Manual Entry / Edit Modal -->
+  <div id="manualModal" class="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-50 hidden flex items-center justify-center p-4">
+    <div class="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl">
+      <div class="flex justify-between items-center pb-4 border-b border-slate-100">
+        <h3 class="font-bold text-slate-900 text-lg" id="modalTitle">Tambah Catatan Presensi</h3>
+        <button onclick="closeManualModal()" class="text-slate-400 hover:text-slate-600">
+          <i data-lucide="x" class="w-5 h-5"></i>
+        </button>
+      </div>
+
+      <form id="recordForm" onsubmit="saveManualRecord(event)" class="mt-4 space-y-4">
+        <input type="hidden" id="editRecordId">
+        
+        <div>
+          <label class="block text-xs font-bold text-slate-600 mb-1">Tanggal</label>
+          <input type="date" id="inputDate" required class="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-sm outline-none focus:border-indigo-500">
+        </div>
+
+        <div class="grid grid-cols-2 gap-3">
+          <div>
+            <label class="block text-xs font-bold text-slate-600 mb-1">Jam Masuk</label>
+            <input type="time" id="inputClockIn" required class="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-sm outline-none focus:border-indigo-500">
+          </div>
+          <div>
+            <label class="block text-xs font-bold text-slate-600 mb-1">Jam Pulang</label>
+            <input type="time" id="inputClockOut" class="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-sm outline-none focus:border-indigo-500">
+          </div>
+        </div>
+
+        <div>
+          <label class="block text-xs font-bold text-slate-600 mb-1">Catatan (Opsional)</label>
+          <input type="text" id="inputNotes" placeholder="Contoh: Datang pagi standby server" class="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-sm outline-none focus:border-indigo-500">
+        </div>
+
+        <div class="pt-4 flex justify-end gap-2 border-t border-slate-100">
+          <button type="button" onclick="closeManualModal()" class="px-4 py-2 rounded-xl text-slate-600 bg-slate-100 hover:bg-slate-200 font-semibold text-xs transition">Batal</button>
+          <button type="submit" class="px-5 py-2 rounded-xl text-white bg-indigo-600 hover:bg-indigo-700 font-semibold text-xs shadow-md shadow-indigo-100 transition">Simpan</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Config Modal -->
+  <div id="configModal" class="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-50 hidden flex items-center justify-center p-4">
+    <div class="bg-white rounded-2xl max-w-sm w-full p-6 shadow-2xl">
+      <div class="flex justify-between items-center pb-4 border-b border-slate-100">
+        <h3 class="font-bold text-slate-900 text-lg">Pengaturan Aturan</h3>
+        <button onclick="closeConfigModal()" class="text-slate-400 hover:text-slate-600">
+          <i data-lucide="x" class="w-5 h-5"></i>
+        </button>
+      </div>
+
+      <form id="configForm" onsubmit="saveConfig(event)" class="mt-4 space-y-4">
+        <div>
+          <label class="block text-xs font-bold text-slate-600 mb-1">Standar Jam Kerja (Jam)</label>
+          <input type="number" id="inputStandardHours" step="0.5" min="1" max="24" required class="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-sm outline-none focus:border-indigo-500">
+          <p class="text-[11px] text-slate-400 mt-1">Default: 9 jam kerja</p>
+        </div>
+
+        <div>
+          <label class="block text-xs font-bold text-slate-600 mb-1">Tarif Lembur per Jam (Rp)</label>
+          <input type="number" id="inputHourlyRate" step="1000" min="0" required class="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-sm outline-none focus:border-indigo-500">
+          <p class="text-[11px] text-slate-400 mt-1">Default: Rp 25.000 / jam (Rp 416,67 / menit)</p>
+        </div>
+
+        <div class="pt-4 flex justify-end gap-2 border-t border-slate-100">
+          <button type="button" onclick="closeConfigModal()" class="px-4 py-2 rounded-xl text-slate-600 bg-slate-100 hover:bg-slate-200 font-semibold text-xs transition">Batal</button>
+          <button type="submit" class="px-5 py-2 rounded-xl text-white bg-indigo-600 hover:bg-indigo-700 font-semibold text-xs shadow-md shadow-indigo-100 transition">Terapkan</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>

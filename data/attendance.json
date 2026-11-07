@@ -1,0 +1,16 @@
+[
+  {
+    "id": "rec_simulasi_today",
+    "date": "2026-11-07",
+    "clockIn": "07:20",
+    "clockOut": "17:10",
+    "targetClockOut": "16:20",
+    "totalWorkMinutes": 590,
+    "overtimeMinutes": 50,
+    "overtimePay": 20833,
+    "status": "completed",
+    "notes": "Simulasi: Masuk 07:20, Pulang 17:10",
+    "createdAt": "2026-11-07T07:20:00.000Z",
+    "updatedAt": "2026-11-07T17:10:00.000Z"
+  }
+]

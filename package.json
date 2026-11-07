@@ -1,0 +1,14 @@
+{
+  "name": "absensi-akiri",
+  "version": "1.0.0",
+  "description": "Sistem Presensi & Kalkulator Lembur Presisi 9 Jam Kerja",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "express": "^4.19.2",
+    "cors": "^2.8.5",
+    "pg": "^8.11.5"
+  }
+}
