@@ -1,26 +1,100 @@
+try {
+  require('dotenv').config();
+} catch (e) {
+  // dotenv optional fallback
+}
 const express = require('express');
 const cors = require('cors');
 const path = require('path');
+const fs = require('fs');
+const crypto = require('crypto');
 const db = require('./db');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
+const JWT_SECRET = process.env.JWT_SECRET || 'akiri_secret_key_super_secure_2026';
 
 app.use(cors());
 app.use(express.json());
-app.use(express.static(path.join(__dirname, 'public')));
+const staticDir = fs.existsSync(path.join(__dirname, 'dist'))
+  ? path.join(__dirname, 'dist')
+  : path.join(__dirname, 'public');
+app.use(express.static(staticDir));
 
 // Initialize database tables if connected to PostgreSQL
 db.initDB();
 
-// Helper: Parse time HH:mm into minutes from midnight
+// ==================== AUTH UTILITIES (ZERO EXTERNAL DEPENDENCIES) ====================
+
+function hashPassword(password) {
+  const salt = crypto.randomBytes(16).toString('hex');
+  const hash = crypto.scryptSync(password, salt, 64).toString('hex');
+  return `${salt}:${hash}`;
+}
+
+function verifyPassword(password, stored) {
+  if (!stored || !stored.includes(':')) return false;
+  const [salt, key] = stored.split(':');
+  const hash = crypto.scryptSync(password, salt, 64).toString('hex');
+  return key === hash;
+}
+
+function generateToken(userId) {
+  const payload = Buffer.from(JSON.stringify({
+    userId,
+    exp: Date.now() + 30 * 24 * 60 * 60 * 1000 // 30 days
+  })).toString('base64url');
+
+  const signature = crypto.createHmac('sha256', JWT_SECRET).update(payload).digest('base64url');
+  return `${payload}.${signature}`;
+}
+
+function verifyToken(token) {
+  if (!token || typeof token !== 'string' || !token.includes('.')) return null;
+  const [payload, signature] = token.split('.');
+  const expectedSig = crypto.createHmac('sha256', JWT_SECRET).update(payload).digest('base64url');
+  if (signature !== expectedSig) return null;
+
+  try {
+    const data = JSON.parse(Buffer.from(payload, 'base64url').toString('utf8'));
+    if (data.exp && Date.now() > data.exp) return null;
+    return data.userId;
+  } catch (e) {
+    return null;
+  }
+}
+
+// Authentication Middleware
+async function requireAuth(req, res, next) {
+  const authHeader = req.headers.authorization;
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return res.status(401).json({ error: 'Sesi belum ada atau telah berakhir. Silakan login kembali.' });
+  }
+
+  const token = authHeader.split(' ')[1];
+  const userId = verifyToken(token);
+  if (!userId) {
+    return res.status(401).json({ error: 'Token autentikasi tidak valid atau sudah kedaluwarsa.' });
+  }
+
+  const user = await db.findUserById(userId);
+  if (!user) {
+    return res.status(401).json({ error: 'Pengguna tidak ditemukan dalam sistem.' });
+  }
+
+  req.user = user;
+  req.userId = user.id;
+  next();
+}
+
+// ==================== TIME & RECORD CALCULATOR ====================
+
 function timeToMinutes(timeStr) {
   if (!timeStr) return 0;
   const [h, m] = timeStr.split(':').map(Number);
   return h * 60 + m;
 }
 
-// Helper: Format minutes into HH:mm
 function minutesToTime(mins) {
   const normalized = (mins + 1440) % 1440;
   const h = Math.floor(normalized / 60).toString().padStart(2, '0');
@@ -28,10 +102,9 @@ function minutesToTime(mins) {
   return `${h}:${m}`;
 }
 
-// Helper: Calculate attendance details
-function calculateRecord(clockIn, clockOut, config) {
+function calculateRecord(clockIn, clockOut, standardWorkHours = 9, hourlyOvertimeRate = 25000) {
   const inMins = timeToMinutes(clockIn);
-  const targetWorkMins = config.standardWorkHours * 60; // 540 minutes for 9 hours
+  const targetWorkMins = (Number(standardWorkHours) || 9) * 60; // 540 menit
   const targetOutMins = inMins + targetWorkMins;
   const targetClockOut = minutesToTime(targetOutMins);
 
@@ -54,7 +127,7 @@ function calculateRecord(clockIn, clockOut, config) {
 
   const totalWorkMinutes = outMins - inMins;
   const overtimeMinutes = Math.max(0, totalWorkMinutes - targetWorkMins);
-  const minuteRate = config.hourlyOvertimeRate / 60;
+  const minuteRate = (Number(hourlyOvertimeRate) || 25000) / 60;
   const overtimePay = Math.round(overtimeMinutes * minuteRate);
 
   return {
@@ -68,45 +141,153 @@ function calculateRecord(clockIn, clockOut, config) {
   };
 }
 
-// API: Get Config
-app.get('/api/config', async (req, res) => {
-  const config = await db.getConfig();
-  res.json(config);
+// ==================== AUTH API ROUTES ====================
+
+// Register
+app.post('/api/auth/register', async (req, res) => {
+  try {
+    const { username, password, fullName, role } = req.body;
+    if (!username || !password || !fullName) {
+      return res.status(400).json({ error: 'Nama Lengkap, Username, dan Password wajib diisi.' });
+    }
+
+    const cleanUsername = username.trim().toLowerCase();
+    if (cleanUsername.length < 3) {
+      return res.status(400).json({ error: 'Username minimal 3 karakter.' });
+    }
+    if (password.length < 4) {
+      return res.status(400).json({ error: 'Password minimal 4 karakter.' });
+    }
+
+    const existing = await db.findUserByUsername(cleanUsername);
+    if (existing) {
+      return res.status(400).json({ error: 'Username sudah digunakan. Silakan pilih username lain.' });
+    }
+
+    const passwordHash = hashPassword(password);
+    const user = await db.createUser({
+      username: cleanUsername,
+      passwordHash,
+      fullName: fullName.trim(),
+      role: (role || 'Karyawan').trim(),
+      standardWorkHours: 9,
+      hourlyOvertimeRate: 25000
+    });
+
+    const token = generateToken(user.id);
+    res.json({
+      success: true,
+      token,
+      user: {
+        id: user.id,
+        username: user.username,
+        fullName: user.fullName,
+        role: user.role,
+        standardWorkHours: user.standardWorkHours,
+        hourlyOvertimeRate: user.hourlyOvertimeRate
+      }
+    });
+  } catch (err) {
+    console.error('Register error:', err);
+    res.status(500).json({ error: 'Gagal melakukan pendaftaran akun.' });
+  }
 });
 
-// API: Update Config
-app.post('/api/config', async (req, res) => {
-  const current = await db.getConfig();
-  const updated = {
-    standardWorkHours: Number(req.body.standardWorkHours) || current.standardWorkHours,
-    hourlyOvertimeRate: Number(req.body.hourlyOvertimeRate) || current.hourlyOvertimeRate
-  };
-  await db.saveConfig(updated);
-  res.json(updated);
+// Login
+app.post('/api/auth/login', async (req, res) => {
+  try {
+    const { username, password } = req.body;
+    if (!username || !password) {
+      return res.status(400).json({ error: 'Username dan Password wajib diisi.' });
+    }
+
+    const cleanUsername = username.trim().toLowerCase();
+    const user = await db.findUserByUsername(cleanUsername);
+    if (!user) {
+      return res.status(401).json({ error: 'Username tidak ditemukan.' });
+    }
+
+    const valid = verifyPassword(password, user.passwordHash);
+    if (!valid) {
+      return res.status(401).json({ error: 'Password salah.' });
+    }
+
+    const token = generateToken(user.id);
+    res.json({
+      success: true,
+      token,
+      user: {
+        id: user.id,
+        username: user.username,
+        fullName: user.fullName,
+        role: user.role,
+        standardWorkHours: user.standardWorkHours,
+        hourlyOvertimeRate: user.hourlyOvertimeRate
+      }
+    });
+  } catch (err) {
+    console.error('Login error:', err);
+    res.status(500).json({ error: 'Terjadi kesalahan saat proses login.' });
+  }
 });
 
-// API: List Records
-app.get('/api/records', async (req, res) => {
+// Current User Profile
+app.get('/api/auth/me', requireAuth, (req, res) => {
+  res.json({
+    id: req.user.id,
+    username: req.user.username,
+    fullName: req.user.fullName,
+    role: req.user.role,
+    standardWorkHours: req.user.standardWorkHours,
+    hourlyOvertimeRate: req.user.hourlyOvertimeRate
+  });
+});
+
+// Update Profile & Preferences
+app.put('/api/auth/profile', requireAuth, async (req, res) => {
+  try {
+    const { fullName, role, standardWorkHours, hourlyOvertimeRate } = req.body;
+    const updated = await db.updateUserProfile(req.userId, {
+      fullName: fullName ? fullName.trim() : undefined,
+      role: role ? role.trim() : undefined,
+      standardWorkHours: standardWorkHours !== undefined ? Number(standardWorkHours) : undefined,
+      hourlyOvertimeRate: hourlyOvertimeRate !== undefined ? Number(hourlyOvertimeRate) : undefined
+    });
+
+    res.json({
+      success: true,
+      user: updated
+    });
+  } catch (err) {
+    console.error('Update profile error:', err);
+    res.status(500).json({ error: 'Gagal memperbarui profil pengguna.' });
+  }
+});
+
+// ==================== ATTENDANCE API ROUTES (PROTECTED) ====================
+
+// List Records for logged in user
+app.get('/api/records', requireAuth, async (req, res) => {
   const { month } = req.query; // YYYY-MM
-  const records = await db.getRecords(month);
+  const records = await db.getRecords(req.userId, month);
   res.json(records);
 });
 
-// API: Clock In
-app.post('/api/records/clock-in', async (req, res) => {
+// Clock In
+app.post('/api/records/clock-in', requireAuth, async (req, res) => {
   const { date, clockIn, notes } = req.body;
-  const config = await db.getConfig();
   const targetDate = date || new Date().toISOString().split('T')[0];
 
   const now = new Date();
   const currentTime = clockIn || `${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}`;
 
-  const calc = calculateRecord(currentTime, null, config);
-  const records = await db.getRecords();
+  const calc = calculateRecord(currentTime, null, req.user.standardWorkHours, req.user.hourlyOvertimeRate);
+  const records = await db.getRecords(req.userId);
   const existing = records.find(r => r.date === targetDate);
 
   const newRecord = {
-    id: existing ? existing.id : 'rec_' + Date.now(),
+    id: existing ? existing.id : 'rec_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6),
+    userId: req.userId,
     date: targetDate,
     ...calc,
     notes: notes || ''
@@ -116,26 +297,26 @@ app.post('/api/records/clock-in', async (req, res) => {
   res.json({ success: true, record: newRecord });
 });
 
-// API: Clock Out
-app.post('/api/records/clock-out', async (req, res) => {
+// Clock Out
+app.post('/api/records/clock-out', requireAuth, async (req, res) => {
   const { id, clockOut, notes } = req.body;
-  const config = await db.getConfig();
-  const records = await db.getRecords();
+  const records = await db.getRecords(req.userId);
 
-  const record = id 
+  const record = id
     ? records.find(r => r.id === id)
     : records.find(r => r.status === 'active');
 
   if (!record) {
-    return res.status(404).json({ error: 'Tidak ditemukan data absen masuk yang aktif.' });
+    return res.status(404).json({ error: 'Tidak ditemukan data absen masuk yang aktif untuk akun Anda.' });
   }
 
   const now = new Date();
   const currentTime = clockOut || `${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}`;
 
-  const calc = calculateRecord(record.clockIn, currentTime, config);
+  const calc = calculateRecord(record.clockIn, currentTime, req.user.standardWorkHours, req.user.hourlyOvertimeRate);
   const updatedRecord = {
     ...record,
+    userId: req.userId,
     ...calc,
     notes: notes !== undefined ? notes : record.notes
   };
@@ -144,18 +325,18 @@ app.post('/api/records/clock-out', async (req, res) => {
   res.json({ success: true, record: updatedRecord });
 });
 
-// API: Add/Edit Manual Record
-app.post('/api/records/save', async (req, res) => {
+// Manual Save/Edit Record
+app.post('/api/records/save', requireAuth, async (req, res) => {
   const { id, date, clockIn, clockOut, notes } = req.body;
   if (!date || !clockIn) {
     return res.status(400).json({ error: 'Tanggal dan Jam Masuk wajib diisi.' });
   }
 
-  const config = await db.getConfig();
-  const calc = calculateRecord(clockIn, clockOut || null, config);
+  const calc = calculateRecord(clockIn, clockOut || null, req.user.standardWorkHours, req.user.hourlyOvertimeRate);
 
   const updatedRecord = {
-    id: id || 'rec_' + Date.now(),
+    id: id || 'rec_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6),
+    userId: req.userId,
     date,
     ...calc,
     notes: notes || ''
@@ -165,17 +346,17 @@ app.post('/api/records/save', async (req, res) => {
   res.json({ success: true, record: updatedRecord });
 });
 
-// API: Delete Record
-app.delete('/api/records/:id', async (req, res) => {
+// Delete Record
+app.delete('/api/records/:id', requireAuth, async (req, res) => {
   const { id } = req.params;
-  await db.deleteRecord(id);
+  await db.deleteRecord(id, req.userId);
   res.json({ success: true });
 });
 
-// API: Monthly Summary
-app.get('/api/summary', async (req, res) => {
+// Monthly Summary
+app.get('/api/summary', requireAuth, async (req, res) => {
   const month = req.query.month || new Date().toISOString().slice(0, 7);
-  const records = await db.getRecords(month);
+  const records = await db.getRecords(req.userId, month);
   const completed = records.filter(r => r.status === 'completed');
 
   const totalDays = completed.length;
@@ -194,10 +375,19 @@ app.get('/api/summary', async (req, res) => {
   });
 });
 
-// Only listen when running standalone (not imported by Vercel serverless)
-if (process.env.NODE_ENV !== 'production' || !process.env.VERCEL) {
+// SPA wildcard fallback: any non-API GET request serves index.html
+app.get('*', (req, res, next) => {
+  if (req.path.startsWith('/api')) return next();
+  const indexPath = fs.existsSync(path.join(__dirname, 'dist', 'index.html'))
+    ? path.join(__dirname, 'dist', 'index.html')
+    : path.join(__dirname, 'public', 'index.html');
+  res.sendFile(indexPath);
+});
+
+// Server listener (runs standalone on Render, Railway, or localhost)
+if (!process.env.VERCEL) {
   app.listen(PORT, () => {
-    console.log(`Server Absensi Akiri aktif di: http://localhost:${PORT}`);
+    console.log(`Server Absensi Akiri multi-user aktif di: http://localhost:${PORT}`);
   });
 }
 

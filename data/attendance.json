@@ -1,16 +1,16 @@
 [
   {
-    "id": "rec_simulasi_today",
+    "id": "rec_1794067428677",
     "date": "2026-11-07",
-    "clockIn": "07:20",
+    "clockIn": "07:13",
     "clockOut": "17:10",
-    "targetClockOut": "16:20",
-    "totalWorkMinutes": 590,
-    "overtimeMinutes": 50,
-    "overtimePay": 20833,
+    "targetClockOut": "16:13",
+    "totalWorkMinutes": 597,
+    "overtimeMinutes": 57,
+    "overtimePay": 23750,
     "status": "completed",
-    "notes": "Simulasi: Masuk 07:20, Pulang 17:10",
-    "createdAt": "2026-11-07T07:20:00.000Z",
-    "updatedAt": "2026-11-07T17:10:00.000Z"
+    "notes": "",
+    "createdAt": "2026-11-07T16:03:48.677Z",
+    "updatedAt": "2026-11-07T16:04:05.174Z"
   }
 ]
