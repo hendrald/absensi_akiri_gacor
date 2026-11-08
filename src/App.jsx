@@ -17,12 +17,24 @@ export default function App() {
   const [summary, setSummary] = useState(null);
   const [filterMonth, setFilterMonth] = useState(new Date().toISOString().slice(0, 7));
 
+  // Admin state
+  const [allUsers, setAllUsers] = useState([]);
+  const [selectedUserId, setSelectedUserId] = useState('all');
+
   // Modals state
   const [isAuthOpen, setIsAuthOpen] = useState(false);
   const [authTab, setAuthTab] = useState('login');
   const [isConfigOpen, setIsConfigOpen] = useState(false);
   const [isManualOpen, setIsManualOpen] = useState(false);
   const [editingRecord, setEditingRecord] = useState(null);
+
+  const isAdmin = Boolean(
+    currentUser?.isAdmin ||
+    currentUser?.role?.toLowerCase() === 'admin' ||
+    currentUser?.role?.toLowerCase() === 'hrd' ||
+    currentUser?.username?.toLowerCase() === 'admin' ||
+    currentUser?.username?.toLowerCase().includes('ganteng')
+  );
 
   // Authenticated fetch wrapper
   const authFetch = useCallback(
@@ -78,19 +90,30 @@ export default function App() {
     loadMe();
   }, [authToken, authFetch]);
 
-  // Load records and summary when user or month changes
+  // Load users list for Admin
+  useEffect(() => {
+    if (isAdmin && authToken) {
+      authFetch('/api/admin/users')
+        .then((res) => (res.ok ? res.json() : []))
+        .then((users) => setAllUsers(users))
+        .catch((err) => console.error('Error fetching admin users:', err));
+    }
+  }, [isAdmin, authToken, authFetch]);
+
+  // Load records and summary when user, month, or admin target changes
   const loadRecords = useCallback(async () => {
     if (!authToken || !currentUser) return;
     try {
-      const res = await authFetch(`/api/records?month=${filterMonth}`);
+      const queryTarget = isAdmin ? `&targetUserId=${selectedUserId}` : '';
+      const res = await authFetch(`/api/records?month=${filterMonth}${queryTarget}`);
       if (res.ok) {
         const data = await res.json();
         setRecords(data);
         const todayStr = new Date().toISOString().split('T')[0];
-        setTodayRecord(data.find((r) => r.date === todayStr) || null);
+        setTodayRecord(data.find((r) => r.date === todayStr && (!r.userId || r.userId === currentUser.id)) || null);
       }
 
-      const sumRes = await authFetch(`/api/summary?month=${filterMonth}`);
+      const sumRes = await authFetch(`/api/summary?month=${filterMonth}${queryTarget}`);
       if (sumRes.ok) {
         const sumData = await sumRes.json();
         setSummary(sumData);
@@ -98,7 +121,7 @@ export default function App() {
     } catch (err) {
       console.error('Error loading records:', err.message);
     }
-  }, [authToken, currentUser, filterMonth, authFetch]);
+  }, [authToken, currentUser, filterMonth, selectedUserId, isAdmin, authFetch]);
 
   useEffect(() => {
     loadRecords();
@@ -149,6 +172,8 @@ export default function App() {
     setRecords([]);
     setTodayRecord(null);
     setSummary(null);
+    setAllUsers([]);
+    setSelectedUserId('all');
     setIsAuthOpen(true);
     setAuthTab('login');
   };
@@ -228,7 +253,7 @@ export default function App() {
     }
   };
 
-  // Export PDF Handler
+  // Export PDF Handler (Supports Admin Multi-Employee mode)
   const handleDownloadPDF = async () => {
     if (!currentUser) return;
 
@@ -252,14 +277,30 @@ export default function App() {
     ];
     const monthName = monthNames[parseInt(monthNum, 10) - 1] || filterMonth;
 
+    const isAllMode = isAdmin && selectedUserId === 'all';
+    const targetUser = isAdmin && selectedUserId !== 'all'
+      ? allUsers.find((u) => u.id === selectedUserId) || currentUser
+      : currentUser;
+
+    const empName = isAllMode
+      ? `Seluruh Karyawan (${allUsers.length} Orang)`
+      : targetUser.fullName || targetUser.username || 'Karyawan';
+    const empRole = isAllMode ? 'Rekapitulasi Divisi / Kantor' : targetUser.role || 'Karyawan';
+
     // Header Title
     doc.setFont('helvetica', 'bold');
-    doc.setFontSize(16);
+    doc.setFontSize(15);
     doc.setTextColor(30, 41, 59);
-    doc.text('REKAPITULASI PRESENSI & PERHITUNGAN LEMBUR', 14, 18);
+    doc.text(
+      isAllMode
+        ? 'REKAPITULASI PRESENSI & LEMBUR (SELURUH KARYAWAN)'
+        : 'REKAPITULASI PRESENSI & PERHITUNGAN LEMBUR',
+      14,
+      18
+    );
 
     doc.setFont('helvetica', 'normal');
-    doc.setFontSize(10);
+    doc.setFontSize(9.5);
     doc.setTextColor(100, 116, 139);
     doc.text(
       `Standar Kerja Riil: ${config.standardWorkHours || 9} Jam | Tarif Lembur: Rp ${(config.hourlyOvertimeRate || 25000).toLocaleString('id-ID')} / jam`,
@@ -271,15 +312,12 @@ export default function App() {
     doc.setLineWidth(0.5);
     doc.line(14, 27, 196, 27);
 
-    // Metadata
-    const empName = currentUser.fullName || currentUser.username || 'Karyawan';
-    const empRole = currentUser.role || 'Karyawan';
-
-    doc.setFontSize(10);
+    // Metadata Box
+    doc.setFontSize(9.5);
     doc.setTextColor(51, 65, 85);
 
     doc.setFont('helvetica', 'bold');
-    doc.text('Nama Karyawan', 14, 34);
+    doc.text(isAllMode ? 'Divisi / Unit' : 'Nama Karyawan', 14, 34);
     doc.setFont('helvetica', 'normal');
     doc.text(`: ${empName}`, 48, 34);
 
@@ -299,12 +337,29 @@ export default function App() {
     doc.text(`: ${new Date().toLocaleDateString('id-ID')}`, 160, 40);
 
     // Table Data
+    const tableHeaders = isAllMode
+      ? ['No', 'Karyawan', 'Tanggal', 'Masuk', 'Pulang', 'Total', 'Lembur', 'Uang Lembur']
+      : ['No', 'Tanggal', 'Jam Masuk', 'Target 9j', 'Jam Pulang', 'Total Kerja', 'Lembur', 'Uang Lembur', 'Status'];
+
     const tableData = records.map((r, index) => {
       const workHours = r.totalWorkMinutes
         ? `${Math.floor(r.totalWorkMinutes / 60)}j ${r.totalWorkMinutes % 60}m`
         : '-';
       const overtimeStr = r.overtimeMinutes > 0 ? `${r.overtimeMinutes} m` : '-';
       const overtimePayStr = r.overtimePay > 0 ? `Rp ${r.overtimePay.toLocaleString('id-ID')}` : '-';
+
+      if (isAllMode) {
+        return [
+          (index + 1).toString(),
+          r.userFullName || 'Karyawan',
+          r.date,
+          r.clockIn,
+          r.clockOut || '-',
+          workHours,
+          overtimeStr,
+          overtimePayStr
+        ];
+      }
 
       return [
         (index + 1).toString(),
@@ -333,12 +388,18 @@ export default function App() {
       }
     });
 
-    doc.autoTable({
-      startY: 46,
-      head: [['No', 'Tanggal', 'Jam Masuk', 'Target 9j', 'Jam Pulang', 'Total Kerja', 'Lembur', 'Uang Lembur', 'Status']],
-      body: tableData,
-      foot: [
-        [
+    const footRow = isAllMode
+      ? [
+          'TOTAL',
+          `${allUsers.length} User`,
+          `${totalDays} Record`,
+          '',
+          '',
+          `${(totalWorkMinutes / 60).toFixed(1)} Jam`,
+          `${totalOvertimeMinutes} Mnt`,
+          `Rp ${totalOvertimePay.toLocaleString('id-ID')}`
+        ]
+      : [
           'TOTAL',
           `${totalDays} Hari`,
           '',
@@ -348,36 +409,30 @@ export default function App() {
           `${totalOvertimeMinutes} Menit`,
           `Rp ${totalOvertimePay.toLocaleString('id-ID')}`,
           ''
-        ]
-      ],
+        ];
+
+    doc.autoTable({
+      startY: 46,
+      head: [tableHeaders],
+      body: tableData,
+      foot: [footRow],
       theme: 'grid',
       headStyles: {
         fillColor: [79, 70, 229],
         textColor: 255,
-        fontSize: 8.5,
+        fontSize: 8,
         fontStyle: 'bold',
         halign: 'center'
       },
       bodyStyles: {
-        fontSize: 8,
+        fontSize: 7.5,
         textColor: [51, 65, 85]
       },
       footStyles: {
         fillColor: [241, 245, 249],
         textColor: [15, 23, 42],
-        fontSize: 8.5,
+        fontSize: 8,
         fontStyle: 'bold'
-      },
-      columnStyles: {
-        0: { halign: 'center', cellWidth: 10 },
-        1: { halign: 'center', cellWidth: 24 },
-        2: { halign: 'center', cellWidth: 20 },
-        3: { halign: 'center', cellWidth: 20 },
-        4: { halign: 'center', cellWidth: 20 },
-        5: { halign: 'center', cellWidth: 22 },
-        6: { halign: 'center', cellWidth: 20 },
-        7: { halign: 'right', cellWidth: 28 },
-        8: { halign: 'center', cellWidth: 16 }
       },
       margin: { left: 14, right: 14 }
     });
@@ -391,12 +446,12 @@ export default function App() {
       doc.setTextColor(71, 85, 105);
 
       // Karyawan
-      doc.text('Karyawan yang bersangkutan,', 24, finalY);
+      doc.text(isAllMode ? 'Dibuat oleh (Admin),' : 'Karyawan yang bersangkutan,', 24, finalY);
       doc.text('_________________________', 24, finalY + 22);
       doc.setFont('helvetica', 'bold');
-      doc.text(empName, 24, finalY + 27);
+      doc.text(currentUser.fullName || currentUser.username, 24, finalY + 27);
       doc.setFont('helvetica', 'normal');
-      doc.text(empRole, 24, finalY + 31);
+      doc.text(currentUser.role || 'Admin', 24, finalY + 31);
 
       // HRD
       doc.text('Mengetahui / Menyetujui (HRD),', 130, finalY);
@@ -407,7 +462,8 @@ export default function App() {
       doc.text('Divisi Operasional & HR', 130, finalY + 31);
     }
 
-    doc.save(`Rekap_Absensi_${currentUser.username || 'user'}_${filterMonth}.pdf`);
+    const filePrefix = isAllMode ? 'Rekap_Semua_Karyawan' : `Rekap_${targetUser.username || 'user'}`;
+    doc.save(`${filePrefix}_${filterMonth}.pdf`);
   };
 
   // Export CSV Handler
@@ -417,37 +473,50 @@ export default function App() {
       return;
     }
 
-    const headers = [
-      'No',
-      'Tanggal',
-      'Jam Masuk',
-      'Target 9 Jam',
-      'Jam Pulang',
-      'Total Kerja (Menit)',
-      'Lembur (Menit)',
-      'Uang Lembur (Rp)',
-      'Status',
-      'Catatan'
-    ];
+    const isAllMode = isAdmin && selectedUserId === 'all';
+    const headers = isAllMode
+      ? ['No', 'Nama Karyawan', 'Username', 'Tanggal', 'Jam Masuk', 'Target 9 Jam', 'Jam Pulang', 'Total Kerja (Menit)', 'Lembur (Menit)', 'Uang Lembur (Rp)', 'Status', 'Catatan']
+      : ['No', 'Tanggal', 'Jam Masuk', 'Target 9 Jam', 'Jam Pulang', 'Total Kerja (Menit)', 'Lembur (Menit)', 'Uang Lembur (Rp)', 'Status', 'Catatan'];
 
-    const rows = records.map((r, i) => [
-      i + 1,
-      r.date,
-      r.clockIn,
-      r.targetClockOut || '',
-      r.clockOut || '',
-      r.totalWorkMinutes || 0,
-      r.overtimeMinutes || 0,
-      r.overtimePay || 0,
-      r.status === 'completed' ? 'Selesai' : 'Aktif',
-      `"${(r.notes || '').replace(/"/g, '""')}"`
-    ]);
+    const rows = records.map((r, i) => {
+      if (isAllMode) {
+        return [
+          i + 1,
+          `"${(r.userFullName || 'Karyawan').replace(/"/g, '""')}"`,
+          r.userName || '-',
+          r.date,
+          r.clockIn,
+          r.targetClockOut || '',
+          r.clockOut || '',
+          r.totalWorkMinutes || 0,
+          r.overtimeMinutes || 0,
+          r.overtimePay || 0,
+          r.status === 'completed' ? 'Selesai' : 'Aktif',
+          `"${(r.notes || '').replace(/"/g, '""')}"`
+        ];
+      }
+
+      return [
+        i + 1,
+        r.date,
+        r.clockIn,
+        r.targetClockOut || '',
+        r.clockOut || '',
+        r.totalWorkMinutes || 0,
+        r.overtimeMinutes || 0,
+        r.overtimePay || 0,
+        r.status === 'completed' ? 'Selesai' : 'Aktif',
+        `"${(r.notes || '').replace(/"/g, '""')}"`
+      ];
+    });
 
     const csvContent = [headers.join(','), ...rows.map((row) => row.join(','))].join('\n');
     const blob = new Blob(['\uFEFF' + csvContent], { type: 'text/csv;charset=utf-8;' });
     const link = document.createElement('a');
     link.href = URL.createObjectURL(blob);
-    link.download = `Rekap_Absensi_${currentUser.username}_${filterMonth}.csv`;
+
+    const filePrefix = isAllMode ? 'Rekap_Semua_Karyawan' : `Rekap_${currentUser.username}`;
+    link.download = `${filePrefix}_${filterMonth}.csv`;
     link.click();
   };
 
@@ -501,6 +570,10 @@ export default function App() {
           onDownloadPDF={handleDownloadPDF}
           onExportCSV={handleExportCSV}
           currentUser={currentUser}
+          isAdmin={isAdmin}
+          allUsers={allUsers}
+          selectedUserId={selectedUserId}
+          onSelectUser={setSelectedUserId}
         />
       </div>
 
@@ -529,4 +602,3 @@ export default function App() {
     </div>
   );
 }
-

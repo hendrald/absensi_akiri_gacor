@@ -231,16 +231,34 @@ app.post('/api/auth/login', async (req, res) => {
   }
 });
 
+function isAdminUser(user) {
+  if (!user) return false;
+  const r = (user.role || '').toLowerCase();
+  const u = (user.username || '').toLowerCase();
+  return r === 'admin' || r === 'hrd' || u === 'admin' || u.includes('ganteng');
+}
+
 // Current User Profile
 app.get('/api/auth/me', requireAuth, (req, res) => {
+  const isAdmin = isAdminUser(req.user);
   res.json({
     id: req.user.id,
     username: req.user.username,
     fullName: req.user.fullName,
-    role: req.user.role,
+    role: isAdmin ? 'Admin' : req.user.role,
+    isAdmin,
     standardWorkHours: req.user.standardWorkHours,
     hourlyOvertimeRate: req.user.hourlyOvertimeRate
   });
+});
+
+// Admin API: List all registered employees
+app.get('/api/admin/users', requireAuth, async (req, res) => {
+  if (!isAdminUser(req.user)) {
+    return res.status(403).json({ error: 'Akses ditolak. Fitur ini hanya untuk Admin.' });
+  }
+  const users = await db.getAllUsers();
+  res.json(users);
 });
 
 // Update Profile & Preferences
@@ -266,10 +284,20 @@ app.put('/api/auth/profile', requireAuth, async (req, res) => {
 
 // ==================== ATTENDANCE API ROUTES (PROTECTED) ====================
 
-// List Records for logged in user
+// List Records (with Admin Multi-User Switcher support)
 app.get('/api/records', requireAuth, async (req, res) => {
-  const { month } = req.query; // YYYY-MM
-  const records = await db.getRecords(req.userId, month);
+  const { month, targetUserId } = req.query; // YYYY-MM
+  const isAdmin = isAdminUser(req.user);
+
+  let records = [];
+  if (isAdmin && targetUserId === 'all') {
+    records = await db.getRecords(null, month, true);
+  } else if (isAdmin && targetUserId) {
+    records = await db.getRecords(targetUserId, month, false);
+  } else {
+    records = await db.getRecords(req.userId, month, false);
+  }
+
   res.json(records);
 });
 
@@ -353,12 +381,22 @@ app.delete('/api/records/:id', requireAuth, async (req, res) => {
   res.json({ success: true });
 });
 
-// Monthly Summary
+// Monthly Summary (supports Admin target user or all users)
 app.get('/api/summary', requireAuth, async (req, res) => {
   const month = req.query.month || new Date().toISOString().slice(0, 7);
-  const records = await db.getRecords(req.userId, month);
-  const completed = records.filter(r => r.status === 'completed');
+  const targetUserId = req.query.targetUserId;
+  const isAdmin = isAdminUser(req.user);
 
+  let records = [];
+  if (isAdmin && targetUserId === 'all') {
+    records = await db.getRecords(null, month, true);
+  } else if (isAdmin && targetUserId) {
+    records = await db.getRecords(targetUserId, month, false);
+  } else {
+    records = await db.getRecords(req.userId, month, false);
+  }
+
+  const completed = records.filter(r => r.status === 'completed');
   const totalDays = completed.length;
   const totalWorkMinutes = completed.reduce((acc, r) => acc + (r.totalWorkMinutes || 0), 0);
   const totalOvertimeMinutes = completed.reduce((acc, r) => acc + (r.overtimeMinutes || 0), 0);

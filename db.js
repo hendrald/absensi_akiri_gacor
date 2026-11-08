@@ -168,6 +168,36 @@ async function findUserById(id) {
   return users.find(u => u.id === id) || null;
 }
 
+async function getAllUsers() {
+  if (pool) {
+    try {
+      const res = await pool.query('SELECT id, username, full_name, role, standard_work_hours, hourly_overtime_rate, created_at FROM users ORDER BY created_at ASC');
+      return res.rows.map(u => ({
+        id: u.id,
+        username: u.username,
+        fullName: u.full_name,
+        role: u.role,
+        standardWorkHours: Number(u.standard_work_hours) || 9,
+        hourlyOvertimeRate: Number(u.hourly_overtime_rate) || 25000,
+        createdAt: u.created_at
+      }));
+    } catch (e) {
+      console.error('Error getting all users in DB:', e.message);
+    }
+  }
+
+  const users = getLocalUsers();
+  return users.map(u => ({
+    id: u.id,
+    username: u.username,
+    fullName: u.fullName,
+    role: u.role,
+    standardWorkHours: u.standardWorkHours || 9,
+    hourlyOvertimeRate: u.hourlyOvertimeRate || 25000,
+    createdAt: u.createdAt
+  }));
+}
+
 async function createUser(user) {
   const newUser = {
     id: user.id || 'usr_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6),
@@ -182,6 +212,13 @@ async function createUser(user) {
 
   if (pool) {
     try {
+      // Auto-assign Admin role to the first registered user
+      const countRes = await pool.query('SELECT COUNT(*) FROM users');
+      const isFirstUser = parseInt(countRes.rows[0].count, 10) === 0;
+      if (isFirstUser) {
+        newUser.role = 'Admin';
+      }
+
       await pool.query(`
         INSERT INTO users (id, username, password_hash, full_name, role, standard_work_hours, hourly_overtime_rate)
         VALUES ($1, $2, $3, $4, $5, $6, $7)
@@ -209,6 +246,9 @@ async function createUser(user) {
 
   // Fallback local
   const users = getLocalUsers();
+  if (users.length === 0) {
+    newUser.role = 'Admin';
+  }
   users.push(newUser);
   saveLocalUsers(users);
 
@@ -294,20 +334,44 @@ function saveLocalRecords(records) {
   fs.writeFileSync(DATA_FILE, JSON.stringify(records, null, 2), 'utf-8');
 }
 
-async function getRecords(userId, month) {
+async function getRecords(userId, month, isAdminAll = false) {
   if (pool) {
     try {
-      let query = 'SELECT * FROM attendances WHERE user_id = $1';
-      const params = [userId];
-      if (month) {
-        query += ' AND date LIKE $2';
-        params.push(`${month}%`);
+      let query = '';
+      const params = [];
+
+      if (isAdminAll) {
+        query = `
+          SELECT a.*, u.full_name as user_full_name, u.role as user_role, u.username as user_username
+          FROM attendances a
+          LEFT JOIN users u ON a.user_id = u.id
+        `;
+        if (month) {
+          query += ' WHERE a.date LIKE $1';
+          params.push(`${month}%`);
+        }
+      } else {
+        query = `
+          SELECT a.*, u.full_name as user_full_name, u.role as user_role, u.username as user_username
+          FROM attendances a
+          LEFT JOIN users u ON a.user_id = u.id
+          WHERE a.user_id = $1
+        `;
+        params.push(userId);
+        if (month) {
+          query += ' AND a.date LIKE $2';
+          params.push(`${month}%`);
+        }
       }
-      query += ' ORDER BY date DESC, created_at DESC';
+
+      query += ' ORDER BY a.date DESC, a.created_at DESC';
       const res = await pool.query(query, params);
       return res.rows.map(r => ({
         id: r.id,
         userId: r.user_id,
+        userFullName: r.user_full_name || 'Karyawan',
+        userRole: r.user_role || 'Karyawan',
+        userName: r.user_username || '-',
         date: r.date,
         clockIn: r.clock_in,
         clockOut: r.clock_out,
@@ -325,10 +389,22 @@ async function getRecords(userId, month) {
     }
   }
 
-  // Fallback local file (filter by userId)
-  const records = getLocalRecords();
+  // Fallback local file
+  let records = getLocalRecords();
+  const users = getLocalUsers();
+
+  records = records.map(r => {
+    const u = users.find(user => user.id === r.userId);
+    return {
+      ...r,
+      userFullName: u ? u.fullName : 'Karyawan',
+      userRole: u ? u.role : 'Karyawan',
+      userName: u ? u.username : '-'
+    };
+  });
+
   return records.filter(r => {
-    const matchesUser = r.userId === userId;
+    const matchesUser = isAdminAll ? true : (r.userId === userId);
     const matchesMonth = month ? r.date.startsWith(month) : true;
     return matchesUser && matchesMonth;
   });
@@ -407,6 +483,7 @@ module.exports = {
   initDB,
   findUserByUsername,
   findUserById,
+  getAllUsers,
   createUser,
   updateUserProfile,
   getRecords,

@@ -48,7 +48,13 @@ export default function Header({ currentUser, onOpenAuth, onOpenConfig, onLogout
               </div>
               <div className="text-left">
                 <div className="text-xs font-bold text-slate-800 leading-tight">{currentUser.fullName || currentUser.username}</div>
-                <div className="text-[10px] text-slate-500 font-medium">{currentUser.role || 'Karyawan'}</div>
+                {currentUser.isAdmin || currentUser.role?.toLowerCase() === 'admin' ? (
+                  <span className="inline-block px-1.5 py-0.5 bg-amber-100 text-amber-800 text-[10px] font-black rounded-md">
+                    👑 Admin
+                  </span>
+                ) : (
+                  <div className="text-[10px] text-slate-500 font-medium">{currentUser.role || 'Karyawan'}</div>
+                )}
               </div>
             </div>
             <button

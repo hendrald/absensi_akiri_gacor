@@ -1,5 +1,5 @@
 import React from 'react';
-import { Table, Plus, Download, FileSpreadsheet, Edit3, Trash2 } from 'lucide-react';
+import { Table, Plus, Download, FileSpreadsheet, Edit3, Trash2, Users } from 'lucide-react';
 
 export default function RekapTable({
   records = [],
@@ -10,7 +10,11 @@ export default function RekapTable({
   onDeleteRecord,
   onDownloadPDF,
   onExportCSV,
-  currentUser
+  currentUser,
+  isAdmin = false,
+  allUsers = [],
+  selectedUserId = 'all',
+  onSelectUser
 }) {
   const formatDateID = (dateStr) => {
     if (!dateStr) return '';
@@ -21,6 +25,8 @@ export default function RekapTable({
       month: 'short'
     });
   };
+
+  const isShowingAll = isAdmin && selectedUserId === 'all';
 
   // Calculations for tfoot totals
   let totalWorkMinutesAll = 0;
@@ -43,13 +49,20 @@ export default function RekapTable({
 
   return (
     <div className="mt-6 sm:mt-8 bg-white border border-slate-200 rounded-2xl sm:rounded-3xl p-4 sm:p-6 shadow-xs">
-      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 pb-4 border-b border-slate-100">
+      <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4 pb-4 border-b border-slate-100">
         <div>
           <div className="flex items-center gap-2">
             <span className="p-1.5 bg-indigo-50 text-indigo-600 rounded-lg">
               <Table className="w-4 h-4" />
             </span>
-            <h2 className="text-base sm:text-lg font-bold text-slate-900">Rekap Absen Datang & Pulang</h2>
+            <h2 className="text-base sm:text-lg font-bold text-slate-900">
+              Rekap Absen Datang & Pulang
+              {isAdmin && (
+                <span className="ml-2 text-xs font-extrabold px-2 py-0.5 rounded-full bg-amber-100 text-amber-800">
+                  Panel Admin
+                </span>
+              )}
+            </h2>
           </div>
           <p className="text-xs text-slate-500 mt-0.5">
             Daftar presensi, jam masuk riil kantor, jam pulang, dan kalkulasi lembur harian.
@@ -57,7 +70,26 @@ export default function RekapTable({
         </div>
 
         {/* Filter & Action Controls */}
-        <div className="flex flex-wrap items-center gap-2.5 w-full sm:w-auto">
+        <div className="flex flex-wrap items-center gap-2.5 w-full lg:w-auto">
+          {/* Admin Employee Switcher Dropdown */}
+          {isAdmin && (
+            <div className="flex items-center gap-1.5 bg-amber-50 border border-amber-200 px-3 py-1.5 rounded-xl">
+              <Users className="w-3.5 h-3.5 text-amber-700" />
+              <select
+                value={selectedUserId}
+                onChange={(e) => onSelectUser(e.target.value)}
+                className="bg-white border border-amber-300 text-xs font-bold text-amber-900 px-2 py-1 rounded-lg outline-none focus:border-amber-500 shadow-2xs"
+              >
+                <option value="all">👥 Semua Karyawan ({allUsers.length})</option>
+                {allUsers.map((u) => (
+                  <option key={u.id} value={u.id}>
+                    👤 {u.fullName} (@{u.username})
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
+
           <input
             type="month"
             value={filterMonth}
@@ -95,9 +127,10 @@ export default function RekapTable({
 
       {/* Tabel Rekap Responsif */}
       <div className="overflow-x-auto mt-4 -mx-4 sm:mx-0">
-        <table className="w-full text-left text-xs whitespace-nowrap min-w-[650px]">
+        <table className="w-full text-left text-xs whitespace-nowrap min-w-[700px]">
           <thead>
             <tr className="bg-slate-50/80 text-slate-500 border-b border-slate-200 uppercase font-semibold text-[11px] tracking-wider">
+              {isShowingAll && <th className="py-3 px-3.5 text-indigo-900 font-extrabold">Karyawan</th>}
               <th className="py-3 px-3.5">Tanggal</th>
               <th className="py-3 px-3">Jam Masuk</th>
               <th className="py-3 px-3">Target Pulang</th>
@@ -112,13 +145,13 @@ export default function RekapTable({
           <tbody className="divide-y divide-slate-100 font-medium text-slate-700">
             {!currentUser ? (
               <tr>
-                <td colSpan="9" className="py-8 text-center text-slate-400">
+                <td colSpan={isShowingAll ? 10 : 9} className="py-8 text-center text-slate-400">
                   Silakan masuk ke akun Anda untuk melihat rekapan presensi.
                 </td>
               </tr>
             ) : records.length === 0 ? (
               <tr>
-                <td colSpan="9" className="py-8 text-center text-slate-400">
+                <td colSpan={isShowingAll ? 10 : 9} className="py-8 text-center text-slate-400">
                   Belum ada catatan presensi pada bulan ini.
                 </td>
               </tr>
@@ -132,6 +165,16 @@ export default function RekapTable({
 
                 return (
                   <tr key={r.id} className="hover:bg-slate-50 transition border-b border-slate-100">
+                    {isShowingAll && (
+                      <td className="py-3 px-3.5 font-bold text-slate-900">
+                        <div className="flex items-center gap-1.5">
+                          <span className="w-5 h-5 rounded-md bg-indigo-100 text-indigo-700 text-[10px] font-bold flex items-center justify-center">
+                            {(r.userFullName || 'K').charAt(0).toUpperCase()}
+                          </span>
+                          <span>{r.userFullName || 'Karyawan'}</span>
+                        </div>
+                      </td>
+                    )}
                     <td className="py-3 px-3.5 font-bold text-slate-900">{formatDateID(r.date)}</td>
                     <td className="py-3 px-3 font-mono font-bold text-indigo-700">{r.clockIn}</td>
                     <td className="py-3 px-3 font-mono text-slate-500">{r.targetClockOut || '-'}</td>
@@ -181,7 +224,7 @@ export default function RekapTable({
             <tfoot className="bg-slate-50/90 font-bold text-slate-900 border-t-2 border-slate-300">
               <tr>
                 <td
-                  colSpan="4"
+                  colSpan={isShowingAll ? 5 : 4}
                   className="py-3.5 px-3.5 text-left text-xs uppercase tracking-wider text-slate-600 font-extrabold"
                 >
                   Total Akumulasi ({completedCount} Hari Kerja Selesai)
@@ -198,4 +241,3 @@ export default function RekapTable({
     </div>
   );
 }
-
