@@ -75,11 +75,10 @@ export default function AuthModal({
               setTab('login');
               setErrorMsg('');
             }}
-            className={`flex-1 py-2 rounded-lg transition text-center ${
-              tab === 'login'
-                ? 'bg-white text-indigo-600 shadow-xs'
-                : 'text-slate-500 hover:text-slate-800'
-            }`}
+            className={`flex-1 py-2 rounded-lg transition text-center ${tab === 'login'
+              ? 'bg-white text-indigo-600 shadow-xs'
+              : 'text-slate-500 hover:text-slate-800'
+              }`}
           >
             Masuk (Login)
           </button>
@@ -89,11 +88,10 @@ export default function AuthModal({
               setTab('register');
               setErrorMsg('');
             }}
-            className={`flex-1 py-2 rounded-lg transition text-center ${
-              tab === 'register'
-                ? 'bg-white text-indigo-600 shadow-xs'
-                : 'text-slate-500 hover:text-slate-800'
-            }`}
+            className={`flex-1 py-2 rounded-lg transition text-center ${tab === 'register'
+              ? 'bg-white text-indigo-600 shadow-xs'
+              : 'text-slate-500 hover:text-slate-800'
+              }`}
           >
             Daftar Baru (Register)
           </button>
@@ -150,7 +148,7 @@ export default function AuthModal({
                 required
                 value={regFullName}
                 onChange={(e) => setRegFullName(e.target.value)}
-                placeholder="Contoh: Denny Hendra"
+                placeholder="Masukkan nama lengkap"
                 className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2.5 text-sm outline-none focus:border-indigo-500"
               />
               <p className="text-[10px] text-slate-400 mt-0.5">Nama ini akan dicetak pada slip PDF dan tanda tangan</p>
